@@ -3,3 +3,7 @@
 *.save*
 venv/
 __pycache__/
+.env
+venv/
+*.log
+__pycache__/

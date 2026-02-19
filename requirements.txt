@@ -1,7 +1,9 @@
-aiogram
-python-dotenv
-langchain
-langchain-community
-langchain-google-genai
-faiss-cpu
-pypdf
+aiogram==3.10.0
+langchain==0.2.14
+langchain-community==0.2.12
+langchain-google-genai==1.0.8
+langgraph==0.2.2
+pydantic>=2.4.1
+faiss-cpu==1.8.0.post1
+python-dotenv==1.0.1
+pypdf==4.3.1
