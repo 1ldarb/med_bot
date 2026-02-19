@@ -13,7 +13,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
 
-# --- 1. НАСТРОЙКИ ---
+# --- 1. SETTINGS ---
 logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
@@ -21,11 +21,11 @@ API_KEY = os.getenv("GOOGLE_API_KEY")
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 DB_PATH = "vectorstore/db_faiss"
 
-# --- 2. МОДЕЛИ ДАННЫХ ---
+# --- 2. DATA MODELS ---
 class PatientProfile(BaseModel):
-    gender: str = Field(description="Пол: male/female/unknown")
-    age: int = Field(description="Возраст")
-    history: Optional[str] = Field(default="жалоб нет", description="Анамнез или текущие симптомы")
+    gender: str = Field(description="Gender: male/female/unknown")
+    age: int = Field(description="Age")
+    history: Optional[str] = Field(default="no complaints", description="Medical history or current symptoms")
 
     @field_validator('age')
     @classmethod
@@ -41,31 +41,31 @@ class AgentState(TypedDict):
     answer: str
     is_emergency: bool
 
-# --- 3. ИНИЦИАЛИЗАЦИЯ ИИ ---
+# --- 3. AI INITIALIZATION ---
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=API_KEY)
 vector_db = FAISS.load_local(DB_PATH, embeddings, allow_dangerous_deserialization=True)
 llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=API_KEY, temperature=0.1)
 
-# --- 4. УЗЛЫ ГРАФА ---
+# --- 4. GRAPH NODES ---
 
 async def analyze_node(state: AgentState):
-    """Извлечение данных и поиск 'красных флагов'"""
+    """Data extraction and 'red flag' search"""
     text = state['input']
     
-    # Детектор экстренных ситуаций
-    emergency_keywords = ["онемел", "лицо", "груди", "дышать", "сознание", "паралич", "инсульт"]
+    # Emergency situation detector
+    emergency_keywords = ["numb", "face", "chest", "breathe", "consciousness", "paralysis", "stroke"]
     is_emergency = any(word in text.lower() for word in emergency_keywords)
 
     structured_llm = llm.with_structured_output(PatientProfile)
     try:
-        # Инструктируем модель игнорировать старый контекст
+        # Instruct the model to ignore old context
         profile_obj = await structured_llm.ainvoke(f"Extract current patient profile from this text ONLY: {text}")
         p_dict = profile_obj.model_dump()
     except Exception as e:
         logging.error(f"Extraction error: {e}")
         p_dict = {"gender": "unknown", "age": 50, "history": text}
 
-    # Если ИИ пропустил возраст, пробуем Regex
+    # If the AI missed the age, try Regex
     if p_dict.get('age') == 50:
         match = re.search(r'(\d{1,3})', text)
         if match: p_dict['age'] = int(match.group(1))
@@ -73,50 +73,50 @@ async def analyze_node(state: AgentState):
     return {"patient_data": p_dict, "is_emergency": is_emergency, "context": []}
 
 async def retrieve_node(state: AgentState):
-    """Поиск по базе с расширенным запросом"""
+    """Database search with extended query"""
     p = state['patient_data']
-    search_query = f"профилактика скрининг вакцинация {p['gender']} {p['age']} лет {p['history']}"
+    search_query = f"prevention screening vaccination {p['gender']} {p['age']} years old {p['history']}"
     
     docs = vector_db.similarity_search(search_query, k=12)
     return {"context": [d.page_content for d in docs]}
 
 async def generate_node(state: AgentState):
-    """Финальный ответ с жесткой фильтрацией"""
+    """Final answer with strict filtering"""
     p = state['patient_data']
     age = p['age']
     gender = p['gender']
     
     emergency_note = ""
     if state.get('is_emergency'):
-        emergency_note = "⚠️ ВНИМАНИЕ: Описанные симптомы могут требовать экстренной помощи. Немедленно обратитесь в приемный покой (Миюн) или вызовите скорую помощь (101).\n\n"
+        emergency_note = "⚠️ ATTENTION: The described symptoms may require emergency care. Immediately go to the emergency room (Miyun) or call an ambulance (101).\n\n"
 
     lang_inst = {
-        "ru": f"на русском языке для пациента {age} лет. Структура: 1. Скрининг, 2. Вакцинация.",
+        "ru": f"in Russian for a patient {age} years old. Structure: 1. Screening, 2. Vaccination.",
         "he": f"בעברית עבור מטופל בן {age}. מבנה: 1. סקר, 2. חיסונים.",
         "en": f"in medical English for a {age} years old patient. Structure: 1. Screening, 2. Vaccinations."
     }
 
     prompt = f"""
-    Роль: Ты врач-терапевт в Израиле. Пишешь план профилактики по Табенкину.
-    ПАЦИЕНТ: пол {gender}, возраст {age}, история {p['history']}.
+    Role: You are a general practitioner in Israel. You write a prevention plan according to Tabenkin.
+    PATIENT: gender {gender}, age {age}, history {p['history']}.
     
-    СТРОГИЕ ПРАВИЛА:
-    1. ИСПОЛЬЗУЙ ТОЛЬКО КОНТЕКСТ. Если в контексте нет данных для {age} лет — не выдумывай их.
-    2. ФИЛЬТРАЦИЯ ПО ПОЛУ: Если пациент male — удали маммографию, мазки и остеопороз для женщин.
-    3. ФИЛЬТРАЦИЯ ПО ВОЗРАСТУ: Если пациенту {age} лет, удали рекомендации для других возрастов. (Например, если колоноскопия с 50, а пациенту 25 — удали её).
-    4. Если возраст 75-80+, пиши, что скрининги проводятся по индивидуальному решению врача.
-    5. ИГНОРИРУЙ СЕРДЕЧНУЮ НЕДОСТАТОЧНОСТЬ, если её нет в текущей истории: {p['history']}.
+    STRICT RULES:
+    1. USE ONLY CONTEXT. If there is no data in the context for {age} years - do not invent it.
+    2. GENDER FILTERING: If the patient is male - remove mammography, smears and osteoporosis for women.
+    3. AGE FILTERING: If the patient is {age} years old, remove recommendations for other ages. (For example, if colonoscopy is from 50, and the patient is 25 - remove it).
+    4. If the age is 75-80+, write that screenings are carried out according to the individual decision of the doctor.
+    5. IGNORE HEART FAILURE if it is not in the current history: {p['history']}.
     
-    КОНТЕКСТ:
+    CONTEXT:
     {' '.join(state['context'])}
     
-    ОТВЕТЬ {lang_inst.get(state['language'], 'ru')}
+    ANSWER {lang_inst.get(state['language'], 'ru')}
     """
     
     response = await llm.ainvoke(prompt)
     return {"answer": emergency_note + response.content}
 
-# Сборка графа
+# Graph Assembly
 workflow = StateGraph(AgentState)
 workflow.add_node("analyze", analyze_node)
 workflow.add_node("retrieve", retrieve_node)
@@ -127,7 +127,7 @@ workflow.add_edge("retrieve", "generate")
 workflow.add_edge("generate", END)
 graph_app = workflow.compile()
 
-# --- 5. ТЕЛЕГРАМ ЛОГИКА ---
+# --- 5. TELEGRAM LOGIC ---
 router = Router()
 
 @router.message(Command("start"))
@@ -137,34 +137,34 @@ async def cmd_start(message: types.Message):
         [InlineKeyboardButton(text="English 🇺🇸", callback_data="lang_en")],
         [InlineKeyboardButton(text="עברית 🇮🇱", callback_data="lang_he")]
     ])
-    await message.answer("Выберите язык / Select language:", reply_markup=kb)
+    await message.answer("Choose a language / Select language:", reply_markup=kb)
 
 @router.callback_query(F.data.startswith("lang_"))
 async def set_lang(callback: types.CallbackQuery, state: FSMContext):
     lang = callback.data.split("_")[1]
     await state.update_data(language=lang)
-    await callback.message.answer("Опишите пациента (пол, возраст, симптомы/анамнез):")
+    await callback.message.answer("Describe the patient (gender, age, symptoms/anamnesis):")
     await callback.answer()
 
 @router.message()
 async def handle_question(message: types.Message, state: FSMContext):
     u_data = await state.get_data()
     lang = u_data.get("language", "ru")
-    wait_msg = await message.answer("🔍 Анализирую данные...")
+    wait_msg = await message.answer("🔍 Analyzing data...")
     
     try:
-        # Вызываем граф. Каждый вызов — новое состояние.
+        # Calling the graph. Each call is a new state.
         result = await graph_app.ainvoke({"input": message.text, "language": lang})
         answer = result["answer"]
         
-        # Экранирование спецсимволов для Telegram HTML
+        # Escaping special characters for Telegram HTML
         safe_answer = answer.replace('<', '&lt;').replace('>', '&gt;')
         html = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', safe_answer).replace('* ', '• ')
         
         await wait_msg.edit_text(html[:4000], parse_mode="HTML")
     except Exception as e:
         logging.error(f"Error: {e}")
-        await wait_msg.edit_text("Произошла ошибка. Пожалуйста, попробуйте переформулировать запрос.")
+        await wait_msg.edit_text("An error occurred. Please try rephrasing your request.")
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
