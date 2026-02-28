@@ -4,6 +4,6 @@ langchain-community==0.2.12
 langchain-google-genai==1.0.8
 langgraph==0.2.2
 pydantic>=2.4.1
-faiss-cpu==1.8.0.post1
+faiss-cpu==1.13.2
 python-dotenv==1.0.1
 pypdf==4.3.1
