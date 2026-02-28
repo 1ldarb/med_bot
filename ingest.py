@@ -31,6 +31,10 @@ def create_vector_db():
     # 4. Create FAISS vector database
     db = FAISS.from_documents(texts, embeddings)
     
+    # Extract metadata to flat dicts to avoid pydantic V1/V2 pickle issues
+    for doc_id, doc in db.docstore._dict.items():
+        doc.metadata = {k: str(v) for k, v in doc.metadata.items()}
+    
     # 5. Save locally
     os.makedirs("vectorstore/db_faiss", exist_ok=True)
     db.save_local("vectorstore/db_faiss")
