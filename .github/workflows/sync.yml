@@ -1,0 +1,28 @@
+name: Sync to Notion
+on:
+  push:
+    branches: [ main, master ]
+jobs:
+  notion-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Get Repo Details
+        id: repo_data
+        run: |
+          TOPICS=$(gh repo view ${{ github.repository }} --json repositoryTopics --jq '.repositoryTopics[].name' | tr '\n' ',' | sed 's/,$//')
+          echo "topics=$TOPICS" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Run Sync
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DATABASE_ID: ${{ secrets.DATABASE_ID }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPO_URL: ${{ github.event.repository.html_url }}
+          REPO_DESC: ${{ github.event.repository.description }}
+          REPO_TOPICS: ${{ steps.repo_data.outputs.topics }}
+        run: |
+          curl -O https://raw.githubusercontent.com/1ldarb/central-repo/main/sync_notion.py
+          python sync_notion.py
